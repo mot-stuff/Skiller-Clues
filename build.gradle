@@ -1,0 +1,110 @@
+plugins {
+	id 'java'
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(11)
+	}
+}
+
+repositories {
+	mavenLocal()
+	maven {
+		url = 'https://repo.runelite.net'
+		content {
+			includeGroupByRegex("net\\.runelite.*")
+		}
+	}
+	mavenCentral()
+}
+
+def runeLiteVersion = 'latest.release'
+def pluginMainClass = 'com.example.ExamplePluginTest'
+
+dependencies {
+	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
+
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+	testImplementation 'junit:junit:4.12'
+	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
+	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
+}
+
+group = 'com.example'
+version = '1.0-SNAPSHOT'
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+}
+
+tasks.register('run', JavaExec) {
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = pluginMainClass
+	
+	// Force use of JDK instead of JRE (JDK has jdk.httpserver module)
+	def javaHome = System.getenv("JAVA_HOME")
+	def jdkJavaExe = null
+	
+	if (javaHome?.contains("jre")) {
+		def jdkHome = javaHome.replace("jre", "jdk")
+		def javaExe = new File(jdkHome, "bin/java.exe")
+		if (javaExe.exists()) {
+			jdkJavaExe = javaExe
+		}
+	}
+	
+	if (jdkJavaExe == null) {
+		// Try to find JDK in common location
+		def possibleJdk = new File("C:/Program Files/OpenLogic/jdk-11.0.29.7-hotspot")
+		if (possibleJdk.exists()) {
+			def javaExe = new File(possibleJdk, "bin/java.exe")
+			if (javaExe.exists()) {
+				jdkJavaExe = javaExe
+			}
+		}
+	}
+	
+	if (jdkJavaExe != null && jdkJavaExe.exists()) {
+		executable = jdkJavaExe.absolutePath
+	}
+
+	jvmArgs "-ea",
+		"--add-opens=java.base/java.util=ALL-UNNAMED",
+		"--add-opens=java.base/java.lang=ALL-UNNAMED",
+		"--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+		"--add-opens=java.prefs/java.util.prefs=ALL-UNNAMED",
+		"--add-opens=java.base/java.nio.charset=ALL-UNNAMED",
+		"--add-opens=java.base/java.net=ALL-UNNAMED",
+		"--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+		"--add-opens=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED"
+	args "--developer-mode", "--debug"
+}
+
+tasks.register('shadowJar', Jar) {
+	dependsOn configurations.testRuntimeClasspath
+	manifest {
+		attributes('Main-Class': pluginMainClass, 'Multi-Release': true)
+	}
+
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	from sourceSets.main.output
+	from sourceSets.test.output
+	from {
+		configurations.testRuntimeClasspath.collect { file ->
+			file.isDirectory() ? file : zipTree(file)
+		}
+	}
+
+	exclude 'META-INF/INDEX.LIST'
+	exclude 'META-INF/*.SF'
+	exclude 'META-INF/*.DSA'
+	exclude 'META-INF/*.RSA'
+	exclude '**/module-info.class'
+
+	archiveClassifier.set('shadow')
+	archiveFileName.set("${rootProject.name}-${project.version}-all.jar")
+}
